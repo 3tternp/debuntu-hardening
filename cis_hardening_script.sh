@@ -67,8 +67,37 @@ apt-get remove prelink -y || true
 log "Ensuring bootloader config is secured..."
 chmod 600 /boot/grub/grub.cfg
 
-log "Setting bootloader password (manual step required)"
-echo "Manual: Edit /etc/grub.d/40_custom and add GRUB password"
+log "Configuring authentication for single-user mode..."
+
+# Skip if inside WSL (no GRUB)
+if grep -qEi "(microsoft|wsl)" /proc/version; then
+  log "WSL environment detected. Skipping GRUB configuration."
+else
+  if ! command -v grub-mkpasswd-pbkdf2 &>/dev/null; then
+    apt-get install grub-common -y
+  fi
+
+  GRUB_USER="admin"
+  echo "Enter password for GRUB user '$GRUB_USER':"
+  read -s PASSWORD
+  echo "Confirm password:"
+  read -s PASSWORD_CONFIRM
+
+  if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then
+    echo "Passwords do not match. Aborting."
+    exit 1
+  fi
+
+  HASH=$(echo -e "$PASSWORD\n$PASSWORD" | grub-mkpasswd-pbkdf2 | awk '/PBKDF2 hash/ { print $NF }')
+  cat <<EOF > /etc/grub.d/40_custom
+set superusers="$GRUB_USER"
+password_pbkdf2 $GRUB_USER $HASH
+EOF
+
+  chmod 600 /etc/grub.d/40_custom
+  update-grub
+  log "GRUB password for single-user mode configured."
+fi
 
 log "Ensuring SELinux is installed and enforcing (if applicable)..."
 apt-get install selinux-basics selinux-policy-default -y
