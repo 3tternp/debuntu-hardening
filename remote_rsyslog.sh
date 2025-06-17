@@ -3,18 +3,30 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-TRUSTED_SENDERS="127.0.0.1,192.168.1.10"   # <-- Replace with your trusted IP(s)
 RSYSLOG_CONF="/etc/rsyslog.conf"
 
-echo "[+] Restricting rsyslog remote message sources to: $TRUSTED_SENDERS"
+echo "[*] Enter comma-separated list of trusted IPs or networks (e.g., 127.0.0.1,192.168.1.10,10.0.0.0/24):"
+read -rp "Trusted IP(s): " TRUSTED_SENDERS
 
+# Validate non-empty input
+if [[ -z "$TRUSTED_SENDERS" ]]; then
+    echo "[!] No IPs provided. Exiting."
+    exit 1
+fi
+
+echo "[+] Restricting rsyslog to allow only: $TRUSTED_SENDERS"
+
+# Backup config
+cp "$RSYSLOG_CONF" "${RSYSLOG_CONF}.bak"
+
+# Apply or update AllowedSender rule
 if grep -q '^\$AllowedSender' "$RSYSLOG_CONF"; then
-    sed -i "s/^\$AllowedSender.*/\$AllowedSender TCP,$TRUSTED_SENDERS/" "$RSYSLOG_CONF"
+    sed -i "s|^\$AllowedSender.*|\$AllowedSender TCP,$TRUSTED_SENDERS|" "$RSYSLOG_CONF"
 else
     echo "\$AllowedSender TCP,$TRUSTED_SENDERS" >> "$RSYSLOG_CONF"
 fi
 
-echo "[+] Restarting rsyslog..."
+# Restart rsyslog to apply changes
 systemctl restart rsyslog
 
-echo "[✓] rsyslog now only accepts messages from: $TRUSTED_SENDERS"
+echo "[✓] rsyslog configured to only accept from: $TRUSTED_SENDERS"
