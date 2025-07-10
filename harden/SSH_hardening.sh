@@ -1,7 +1,7 @@
 #!/bin/bash
 # CIS Debian/Ubuntu SSH Hardening Script
 # Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
-# Version: 1.0.4
+# Version: 1.0.5
 # Developed by: Astra
 
 # Ensure script runs with bash
@@ -14,8 +14,18 @@ fi
 set -eu
 IFS=$'\n\t'
 
+# Define file paths
+SSH_CONFIG="/etc/ssh/sshd_config"
+BANNER_FILE="/etc/issue.net"
+BACKUP="/etc/ssh/sshd_config.bak.$(date +%F-%T)"
+
+# Debugging: Verify variables
+echo "DEBUG: SSH_CONFIG=$SSH_CONFIG"
+echo "DEBUG: BANNER_FILE=$BANNER_FILE"
+echo "DEBUG: BACKUP=$BACKUP"
+
 # Warning and Consent
-echo "WARNING: This script modifies /etc/ssh/sshd_config based on CIS Benchmark."
+echo "WARNING: This script modifies $SSH_CONFIG based on CIS Benchmark."
 echo "It will change the SSH port, restrict users, and restart the SSH service."
 echo "Ensure you have an alternative access method (e.g., console) to avoid lockout."
 echo "Use only on test systems or with full understanding of the impact."
@@ -24,11 +34,6 @@ if [[ "$confirm" != "yes" ]]; then
     echo "Operation aborted by user."
     exit 1
 fi
-
-# Define file paths
-SSH_CONFIG="/etc/ssh/sshd_config"
-BANNER_FILE="/etc/issue.net"
-BACKUP="/etc/ssh/sshd_config.bak.$(date +%F-%T)"
 
 # Check if sshd is installed
 if ! command -v sshd >/dev/null 2>&1; then
@@ -91,19 +96,35 @@ if command -v netstat >/dev/null 2>&1 && netstat -tuln | grep -q ":$SSH_PORT "; 
 fi
 
 # 🔁 Backup current SSH config
+if [ -z "$SSH_CONFIG" ]; then
+    echo "Error: SSH_CONFIG variable is empty."
+    exit 1
+fi
 if [ ! -f "$SSH_CONFIG" ]; then
     echo "Error: $SSH_CONFIG not found. Ensure OpenSSH server is installed."
     exit 1
 fi
 cp "$SSH_CONFIG" "$BACKUP" && echo "🔄 Backup saved at $BACKUP"
+if [ ! -f "$BACKUP" ]; then
+    echo "Error: Failed to create backup at $BACKUP."
+    exit 1
+fi
 
 # 🪧 Create banner file if missing (CIS 5.2.7)
+if [ -z "$BANNER_FILE" ]; then
+    echo "Error: BANNER_FILE variable is empty."
+    exit 1
+fi
 [ -f "$BANNER_FILE" ] || echo "Authorized access only. Unauthorized use is prohibited." > "$BANNER_FILE"
 chown root:root "$BANNER_FILE"
 chmod 644 "$BANNER_FILE"
 echo "🪧 Banner file configured at $BANNER_FILE"
 
 # ⚙️ Overwrite sshd_config with CIS-compliant configuration
+if [ -z "$SSH_PORT" ] || [ -z "$ALLOW_USERS" ]; then
+    echo "Error: SSH_PORT or ALLOW_USERS variable is empty."
+    exit 1
+fi
 cat <<EOF > "$SSH_CONFIG"
 # CIS Benchmark SSH Configuration
 Port $SSH_PORT
@@ -127,16 +148,25 @@ AllowUsers $ALLOW_USERS
 EOF
 
 # 🔐 Set secure permissions (CIS 5.2.1)
+if [ -z "$SSH_CONFIG" ]; then
+    echo "Error: SSH_CONFIG variable is empty during permission setting."
+    exit 1
+fi
 chown root:root "$SSH_CONFIG"
 chmod 600 "$SSH_CONFIG"
 echo "🔐 Permissions set to root:root 600 on $SSH_CONFIG"
 
-# 🔁 Restart SSH service
+# 🔁 Test and restart SSH service
+if ! sshd -t >/dev/null 2>&1; then
+    echo "Error: Invalid SSH configuration. Reverting to backup..."
+    cp "$BACKUP" "$SSH_CONFIG" || echo "Error: Failed to restore backup from $BACKUP."
+    exit 1
+fi
 if systemctl restart sshd 2>/dev/null; then
     echo "✅ SSH service restarted successfully on port $SSH_PORT."
 else
     echo "Error: Failed to restart SSH service. Reverting to backup..."
-    cp "$BACKUP" "$SSH_CONFIG"
+    cp "$BACKUP" "$SSH_CONFIG" || echo "Error: Failed to restore backup from $BACKUP."
     systemctl restart sshd 2>/dev/null || echo "Error: Unable to restart SSH service after reverting."
     echo "🔄 Restored $SSH_CONFIG from backup."
     exit 1
