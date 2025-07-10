@@ -1,7 +1,7 @@
 #!/bin/bash
 # CIS Debian/Ubuntu SSH Hardening Script
 # Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
-# Version: 1.0.5
+# Version: 1.0.7
 # Developed by: Astra
 
 # Ensure script runs with bash
@@ -14,15 +14,25 @@ fi
 set -eu
 IFS=$'\n\t'
 
+# Ensure dos2unix is installed and convert script to Unix line endings
+if ! command -v dos2unix >/dev/null 2>&1; then
+    echo "Installing dos2unix to ensure Unix line endings..."
+    apt-get update && apt-get install -y dos2unix || { echo "Error: Failed to install dos2unix."; exit 1; }
+fi
+dos2unix "$0" >/dev/null 2>&1 || { echo "Error: Failed to convert $0 to Unix line endings."; exit 1; }
+echo "✅ Ensured Unix line endings for $0"
+
 # Define file paths
 SSH_CONFIG="/etc/ssh/sshd_config"
 BANNER_FILE="/etc/issue.net"
 BACKUP="/etc/ssh/sshd_config.bak.$(date +%F-%T)"
+TEMP_CONFIG="/tmp/sshd_config_temp"
 
 # Debugging: Verify variables
 echo "DEBUG: SSH_CONFIG=$SSH_CONFIG"
 echo "DEBUG: BANNER_FILE=$BANNER_FILE"
 echo "DEBUG: BACKUP=$BACKUP"
+echo "DEBUG: TEMP_CONFIG=$TEMP_CONFIG"
 
 # Warning and Consent
 echo "WARNING: This script modifies $SSH_CONFIG based on CIS Benchmark."
@@ -81,6 +91,10 @@ for user in $input_users; do
     fi
 done
 ALLOW_USERS=$(echo "$ALLOW_USERS" | xargs) # Trim whitespace
+if [ -z "$ALLOW_USERS" ]; then
+    echo "Error: No valid usernames provided."
+    exit 1
+fi
 
 echo "Enter SSH port to configure (1-65535, avoid 22 if possible):"
 read -r SSH_PORT
@@ -104,9 +118,10 @@ if [ ! -f "$SSH_CONFIG" ]; then
     echo "Error: $SSH_CONFIG not found. Ensure OpenSSH server is installed."
     exit 1
 fi
-cp "$SSH_CONFIG" "$BACKUP" && echo "🔄 Backup saved at $BACKUP"
+cp "$SSH_CONFIG" "$BACKUP" || { echo "Error: Failed to create backup at $BACKUP."; exit 1; }
+echo "🔄 Backup saved at $BACKUP"
 if [ ! -f "$BACKUP" ]; then
-    echo "Error: Failed to create backup at $BACKUP."
+    echo "Error: Backup file $BACKUP does not exist."
     exit 1
 fi
 
@@ -116,16 +131,16 @@ if [ -z "$BANNER_FILE" ]; then
     exit 1
 fi
 [ -f "$BANNER_FILE" ] || echo "Authorized access only. Unauthorized use is prohibited." > "$BANNER_FILE"
-chown root:root "$BANNER_FILE"
-chmod 644 "$BANNER_FILE"
+chown root:root "$BANNER_FILE" || { echo "Error: Failed to set permissions on $BANNER_FILE."; exit 1; }
+chmod 644 "$BANNER_FILE" || { echo "Error: Failed to set permissions on $BANNER_FILE."; exit 1; }
 echo "🪧 Banner file configured at $BANNER_FILE"
 
-# ⚙️ Overwrite sshd_config with CIS-compliant configuration
+# ⚙️ Write to temporary sshd_config
 if [ -z "$SSH_PORT" ] || [ -z "$ALLOW_USERS" ]; then
     echo "Error: SSH_PORT or ALLOW_USERS variable is empty."
     exit 1
 fi
-cat <<EOF > "$SSH_CONFIG"
+cat <<EOF > "$TEMP_CONFIG"
 # CIS Benchmark SSH Configuration
 Port $SSH_PORT
 Protocol 2
@@ -137,9 +152,9 @@ HostbasedAuthentication no
 PermitRootLogin no
 PermitEmptyPasswords no
 PermitUserEnvironment no
-Ciphers aes256-ctr,aes192-ctr,aes128-ctr
+Ciphers aes256-ctr,aes128-ctr
 MACs hmac-sha2-512,hmac-sha2-256
-KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512
+KexAlgorithms curve25519-sha256,diffie-hellman-group-exchange-sha256
 ClientAliveInterval 300
 ClientAliveCountMax 0
 LoginGraceTime 60
@@ -147,26 +162,34 @@ Banner $BANNER_FILE
 AllowUsers $ALLOW_USERS
 EOF
 
+# 🔍 Test temporary sshd_config
+if ! sshd -t -f "$TEMP_CONFIG" >/dev/null 2>"$TEMP_CONFIG.err"; then
+    echo "Error: Invalid SSH configuration in $TEMP_CONFIG. Details:"
+    cat "$TEMP_CONFIG.err"
+    rm -f "$TEMP_CONFIG" "$TEMP_CONFIG.err"
+    echo "Aborting without modifying $SSH_CONFIG."
+    exit 1
+fi
+rm -f "$TEMP_CONFIG.err"
+
+# 🔁 Move temporary config to final location
+mv "$TEMP_CONFIG" "$SSH_CONFIG" || { echo "Error: Failed to move $TEMP_CONFIG to $SSH_CONFIG."; exit 1; }
+
 # 🔐 Set secure permissions (CIS 5.2.1)
 if [ -z "$SSH_CONFIG" ]; then
     echo "Error: SSH_CONFIG variable is empty during permission setting."
     exit 1
 fi
-chown root:root "$SSH_CONFIG"
-chmod 600 "$SSH_CONFIG"
+chown root:root "$SSH_CONFIG" || { echo "Error: Failed to set permissions on $SSH_CONFIG."; exit 1; }
+chmod 600 "$SSH_CONFIG" || { echo "Error: Failed to set permissions on $SSH_CONFIG."; exit 1; }
 echo "🔐 Permissions set to root:root 600 on $SSH_CONFIG"
 
-# 🔁 Test and restart SSH service
-if ! sshd -t >/dev/null 2>&1; then
-    echo "Error: Invalid SSH configuration. Reverting to backup..."
-    cp "$BACKUP" "$SSH_CONFIG" || echo "Error: Failed to restore backup from $BACKUP."
-    exit 1
-fi
-if systemctl restart sshd 2>/dev/null; then
+# 🔁 Restart SSH service
+if systemctl restart ssh 2>/dev/null; then
     echo "✅ SSH service restarted successfully on port $SSH_PORT."
 else
     echo "Error: Failed to restart SSH service. Reverting to backup..."
-    cp "$BACKUP" "$SSH_CONFIG" || echo "Error: Failed to restore backup from $BACKUP."
+    cp "$BACKUP" "$SSH_CONFIG" || { echo "Error: Failed to restore backup from $BACKUP."; exit 1; }
     systemctl restart sshd 2>/dev/null || echo "Error: Unable to restart SSH service after reverting."
     echo "🔄 Restored $SSH_CONFIG from backup."
     exit 1
