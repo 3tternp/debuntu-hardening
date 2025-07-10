@@ -1,13 +1,13 @@
 #!/bin/bash
 # CIS Debian/Ubuntu SSH Hardening Script
 # Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
-# Version: 1.0.7
+# Version: 1.0.8
 # Developed by: Astra
 
 # Ensure script runs with bash
 if [ -z "$BASH_VERSION" ]; then
     echo "Error: This script must be run with bash, not sh or another shell."
-    echo "Run as: sudo bash harden/SSH_hardening.sh"
+    echo "Run as: sudo bash harden/ssh.sh"
     exit 1
 fi
 
@@ -19,8 +19,14 @@ if ! command -v dos2unix >/dev/null 2>&1; then
     echo "Installing dos2unix to ensure Unix line endings..."
     apt-get update && apt-get install -y dos2unix || { echo "Error: Failed to install dos2unix."; exit 1; }
 fi
-dos2unix "$0" >/dev/null 2>&1 || { echo "Error: Failed to convert $0 to Unix line endings."; exit 1; }
-echo "✅ Ensured Unix line endings for $0"
+SCRIPT_PATH=$(readlink -f "$0")
+dos2unix "$SCRIPT_PATH" >/dev/null 2>&1 || { echo "Error: Failed to convert $SCRIPT_PATH to Unix line endings."; exit 1; }
+# Verify line endings
+if cat -v "$SCRIPT_PATH" | grep -q $'\r'; then
+    echo "Error: Windows line endings detected in $SCRIPT_PATH after dos2unix."
+    exit 1
+fi
+echo "✅ Ensured Unix line endings for $SCRIPT_PATH"
 
 # Define file paths
 SSH_CONFIG="/etc/ssh/sshd_config"
@@ -185,7 +191,7 @@ chmod 600 "$SSH_CONFIG" || { echo "Error: Failed to set permissions on $SSH_CONF
 echo "🔐 Permissions set to root:root 600 on $SSH_CONFIG"
 
 # 🔁 Restart SSH service
-if systemctl restart ssh 2>/dev/null; then
+if systemctl restart sshd 2>/dev/null; then
     echo "✅ SSH service restarted successfully on port $SSH_PORT."
 else
     echo "Error: Failed to restart SSH service. Reverting to backup..."
