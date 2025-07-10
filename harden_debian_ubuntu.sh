@@ -71,4 +71,3 @@ select script in "${scripts[@]}"; do
     echo "Invalid selection. Try again."
   fi
 done
-EOF
