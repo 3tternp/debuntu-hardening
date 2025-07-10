@@ -7,5 +7,5 @@ This script is in development and testing phase whose primary function is to har
 git clone https://github.com/3tternp/debuntu-hardening
 cd debuntu-hardening
 sudo chmod +x cis_hardening_script.sh
-sudo ./cis_hardening_script.sh
+sudo ./harden_debian_ubuntu.sh
 ```
