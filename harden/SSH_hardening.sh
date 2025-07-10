@@ -1,44 +1,13 @@
 #!/bin/bash
 # CIS Debian/Ubuntu SSH Hardening Script
 # Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
-# Version: 1.0.0
+# Version: 1.0.2
 # Developed by: Astra
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# Function to center text in the terminal
-center_text() {
-    local text="$1"
-    local term_width=$(tput cols)
-    # Maximum banner width (based on longest line)
-    local max_line_width=44
-    # Calculate padding to center the text
-    local padding=$(( (term_width - max_line_width) / 2 ))
-    if [ $padding -lt 0 ]; then
-        padding=0
-    fi
-    # Print each line with padding
-    while IFS= read -r line; do
-        printf "%${padding}s%s\n" "" "$line"
-    done <<< "$text"
-}
-
-# Define banner text
-banner_text=$(cat << 'EOF'
-========================================
-   CIS Debian/Ubuntu SSH Hardening Script
-========================================
-Version: 1.0.0       Developed by: Astra
-========================================
-EOF
-)
-
-# Display centered banner
-center_text "$banner_text"
-
 # Warning and Consent
-echo ""
 echo "WARNING: This script modifies /etc/ssh/sshd_config based on CIS Benchmark."
 echo "It will change the SSH port, restrict users, and restart the SSH service."
 echo "Ensure you have an alternative access method (e.g., console) to avoid lockout."
@@ -53,6 +22,12 @@ fi
 SSH_CONFIG="/etc/ssh/sshd_config"
 BANNER_FILE="/etc/issue.net"
 BACKUP="/etc/ssh/sshd_config.bak.$(date +%F-%T)"
+
+# Check if sshd is installed
+if ! command -v sshd >/dev/null 2>&1; then
+    echo "Error: OpenSSH server (sshd) is not installed. Install it with 'sudo apt-get install openssh-server'."
+    exit 1
+fi
 
 # Function to validate port
 validate_port() {
@@ -103,14 +78,14 @@ if ! validate_port "$SSH_PORT"; then
 fi
 
 # Check if port is in use (excluding current SSHD process)
-if netstat -tuln | grep -q ":$SSH_PORT "; then
+if command -v netstat >/dev/null 2>&1 && netstat -tuln | grep -q ":$SSH_PORT "; then
     echo "Error: Port $SSH_PORT is already in use by another service."
     exit 1
 fi
 
 # 🔁 Backup current SSH config
 if [ ! -f "$SSH_CONFIG" ]; then
-    echo "Error: $SSH_CONFIG not found."
+    echo "Error: $SSH_CONFIG not found. Ensure OpenSSH server is installed."
     exit 1
 fi
 cp "$SSH_CONFIG" "$BACKUP" && echo "🔄 Backup saved at $BACKUP"
@@ -129,7 +104,7 @@ Protocol 2
 LogLevel INFO
 X11Forwarding no
 MaxAuthTries 4
-IgnoreRhosts yes
+IgnoreRHosts yes
 HostbasedAuthentication no
 PermitRootLogin no
 PermitEmptyPasswords no
@@ -150,19 +125,19 @@ chmod 600 "$SSH_CONFIG"
 echo "🔐 Permissions set to root:root 600 on $SSH_CONFIG"
 
 # 🔁 Restart SSH service
-if systemctl restart sshd; then
+if systemctl restart sshd 2>/dev/null; then
     echo "✅ SSH service restarted successfully on port $SSH_PORT."
 else
     echo "Error: Failed to restart SSH service. Reverting to backup..."
     cp "$BACKUP" "$SSH_CONFIG"
-    systemctl restart sshd
-    echo "🔄 Restored $SSH_CONFIG from backup and restarted SSH service."
+    systemctl restart sshd 2>/dev/null || echo "Error: Unable to restart SSH service after reverting."
+    echo "🔄 Restored $SSH_CONFIG from backup."
     exit 1
 fi
 
 # ✅ Final check
 echo -e "\n🔍 Final sshd_config preview:"
-grep -E '^(Port|Protocol|LogLevel|X11Forwarding|MaxAuthTries|IgnoreRhosts|HostbasedAuthentication|PermitRootLogin|PermitEmptyPasswords|PermitUserEnvironment|Ciphers|MACs|KexAlgorithms|ClientAliveInterval|ClientAliveCountMax|LoginGraceTime|Banner|AllowUsers)' "$SSH_CONFIG"
+grep -E '^(Port|Protocol|LogLevel|X11Forwarding|MaxAuthTries|IgnoreRHosts|HostbasedAuthentication|PermitRootLogin|PermitEmptyPasswords|PermitUserEnvironment|Ciphers|MACs|KexAlgorithms|ClientAliveInterval|ClientAliveCountMax|LoginGraceTime|Banner|AllowUsers)' "$SSH_CONFIG"
 
 echo -e "\n⚠️ IMPORTANT: SSH is now running on port $SSH_PORT."
 echo "Update your SSH client configuration (e.g., ssh -p $SSH_PORT $USER@$HOST)."
