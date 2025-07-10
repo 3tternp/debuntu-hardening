@@ -1,4 +1,3 @@
-cat > harden_debian_ubuntu.sh << 'EOF'
 #!/bin/bash
 # Enhanced Debian/Ubuntu Hardening Script with Consent and Menu
 # Applies selected scripts from 'harden' folder
