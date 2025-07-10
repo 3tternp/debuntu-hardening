@@ -1,3 +1,4 @@
+cat > harden_debian_ubuntu.sh << 'EOF'
 #!/bin/bash
 # Enhanced Debian/Ubuntu Hardening Script with Consent and Menu
 # Applies selected scripts from 'harden' folder
@@ -28,7 +29,7 @@ banner_text=$(cat << 'EOF'
 ========================================
    CIS Debian/Ubuntu Hardening Script
 ========================================
-Version: 1.0.1           Developer:Astra
+Version: 1.0.1       Developed by: Astra
 ========================================
 EOF
 )
@@ -71,3 +72,4 @@ select script in "${scripts[@]}"; do
     echo "Invalid selection. Try again."
   fi
 done
+EOF
