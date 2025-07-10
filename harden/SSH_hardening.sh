@@ -1,7 +1,9 @@
+mkdir -p harden
+cat > harden/SSH_hardening.sh << 'EOF'
 #!/bin/bash
 # CIS Debian/Ubuntu SSH Hardening Script
 # Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
-# Version: 1.0.3
+# Version: 1.0.4
 # Developed by: Astra
 
 # Ensure script runs with bash
@@ -149,3 +151,4 @@ grep -E '^(Port|Protocol|LogLevel|X11Forwarding|MaxAuthTries|IgnoreRHosts|Hostba
 echo -e "\n⚠️ IMPORTANT: SSH is now running on port $SSH_PORT."
 echo "Update your SSH client configuration (e.g., ssh -p $SSH_PORT $USER@$HOST)."
 echo "Test connectivity before closing this session to avoid lockout."
+EOF
