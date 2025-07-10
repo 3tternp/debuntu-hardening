@@ -1,10 +1,17 @@
 #!/bin/bash
 # CIS Debian/Ubuntu SSH Hardening Script
 # Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
-# Version: 1.0.2
+# Version: 1.0.3
 # Developed by: Astra
 
-set -euo pipefail
+# Ensure script runs with bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "Error: This script must be run with bash, not sh or another shell."
+    echo "Run as: sudo bash harden/SSH_hardening.sh"
+    exit 1
+fi
+
+set -eu
 IFS=$'\n\t'
 
 # Warning and Consent
@@ -125,7 +132,7 @@ chmod 600 "$SSH_CONFIG"
 echo "🔐 Permissions set to root:root 600 on $SSH_CONFIG"
 
 # 🔁 Restart SSH service
-if sudo systemctl restart ssh 2>/dev/null; then
+if systemctl restart sshd 2>/dev/null; then
     echo "✅ SSH service restarted successfully on port $SSH_PORT."
 else
     echo "Error: Failed to restart SSH service. Reverting to backup..."
