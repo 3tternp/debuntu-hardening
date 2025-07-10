@@ -1,44 +1,169 @@
 #!/bin/bash
-
-# SSH Hardening Script
-# Purpose: Secure SSH configuration by limiting access to a specific user and custom port
+# CIS Debian/Ubuntu SSH Hardening Script
+# Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
+# Version: 1.0.0
+# Developed by: Astra
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# Prompt for username and port
-read -p "Enter the username you want to allow SSH access for: " SSH_USER
-read -p "Enter the SSH port you want to use (default: 22): " SSH_PORT
-SSH_PORT=${SSH_PORT:-22}
+# Function to center text in the terminal
+center_text() {
+    local text="$1"
+    local term_width=$(tput cols)
+    # Maximum banner width (based on longest line)
+    local max_line_width=44
+    # Calculate padding to center the text
+    local padding=$(( (term_width - max_line_width) / 2 ))
+    if [ $padding -lt 0 ]; then
+        padding=0
+    fi
+    # Print each line with padding
+    while IFS= read -r line; do
+        printf "%${padding}s%s\n" "" "$line"
+    done <<< "$text"
+}
 
-# Create user if not exists
-if id "$SSH_USER" &>/dev/null; then
-    echo "[+] User '$SSH_USER' already exists."
-else
-    echo "[+] Creating user '$SSH_USER'..."
-    adduser --disabled-password --gecos "" "$SSH_USER"
+# Define banner text
+banner_text=$(cat << 'EOF'
+========================================
+   CIS Debian/Ubuntu SSH Hardening Script
+========================================
+Version: 1.0.0       Developed by: Astra
+========================================
+EOF
+)
+
+# Display centered banner
+center_text "$banner_text"
+
+# Warning and Consent
+echo ""
+echo "WARNING: This script modifies /etc/ssh/sshd_config based on CIS Benchmark."
+echo "It will change the SSH port, restrict users, and restart the SSH service."
+echo "Ensure you have an alternative access method (e.g., console) to avoid lockout."
+echo "Use only on test systems or with full understanding of the impact."
+read -p "Do you accept and wish to proceed? (yes/no): " confirm
+if [[ "$confirm" != "yes" ]]; then
+    echo "Operation aborted by user."
+    exit 1
 fi
 
-# Configure SSHD
-SSHD_CONFIG="/etc/ssh/sshd_config"
+# Define file paths
+SSH_CONFIG="/etc/ssh/sshd_config"
+BANNER_FILE="/etc/issue.net"
+BACKUP="/etc/ssh/sshd_config.bak.$(date +%F-%T)"
 
-echo "[+] Backing up current SSH configuration..."
-cp "$SSHD_CONFIG" "$SSHD_CONFIG.bak.$(date +%F-%T)"
+# Function to validate port
+validate_port() {
+    local port=$1
+    if [[ $port =~ ^[0-9]+$ && $port -ge 1 && $port -le 65535 ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
 
-echo "[+] Applying hardening settings to SSH configuration..."
+# Function to validate username
+validate_username() {
+    local username=$1
+    if [[ $username =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ && -n $(id "$username" 2>/dev/null) ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
 
-sed -i "s/^#*Port .*/Port $SSH_PORT/" "$SSHD_CONFIG"
-sed -i "s/^#*PermitRootLogin .*/PermitRootLogin no/" "$SSHD_CONFIG"
-sed -i "s/^#*PasswordAuthentication .*/PasswordAuthentication no/" "$SSHD_CONFIG"
-sed -i "s/^#*ChallengeResponseAuthentication .*/ChallengeResponseAuthentication no/" "$SSHD_CONFIG"
-sed -i "s/^#*UsePAM .*/UsePAM yes/" "$SSHD_CONFIG"
-sed -i "s/^#*X11Forwarding .*/X11Forwarding no/" "$SSHD_CONFIG"
-sed -i "s/^#*AllowUsers .*/AllowUsers $SSH_USER/" "$SSHD_CONFIG"
+# Prompt for user input
+echo ""
+echo "Enter username(s) for SSH access (space-separated, existing users only):"
+read -r input_users
+if [ -z "$input_users" ]; then
+    echo "Error: At least one username must be provided."
+    exit 1
+fi
 
-# In case AllowUsers is not present
-grep -q "^AllowUsers" "$SSHD_CONFIG" || echo "AllowUsers $SSH_USER" >> "$SSHD_CONFIG"
+# Validate each username
+ALLOW_USERS=""
+for user in $input_users; do
+    if validate_username "$user"; then
+        ALLOW_USERS="$ALLOW_USERS $user"
+    else
+        echo "Error: Invalid or non-existing username '$user'. Check if the user exists."
+        exit 1
+    fi
+done
+ALLOW_USERS=$(echo "$ALLOW_USERS" | xargs) # Trim whitespace
 
-echo "[+] Restarting SSH service..."
-systemctl restart sshd
+echo "Enter SSH port to configure (1-65535, avoid 22 if possible):"
+read -r SSH_PORT
+if ! validate_port "$SSH_PORT"; then
+    echo "Error: Invalid port number. Must be between 1 and 65535."
+    exit 1
+fi
 
-echo "[+] SSH hardening complete. SSH is now restricted to user '$SSH_USER' on port $SSH_PORT."
+# Check if port is in use (excluding current SSHD process)
+if netstat -tuln | grep -q ":$SSH_PORT "; then
+    echo "Error: Port $SSH_PORT is already in use by another service."
+    exit 1
+fi
+
+# 🔁 Backup current SSH config
+if [ ! -f "$SSH_CONFIG" ]; then
+    echo "Error: $SSH_CONFIG not found."
+    exit 1
+fi
+cp "$SSH_CONFIG" "$BACKUP" && echo "🔄 Backup saved at $BACKUP"
+
+# 🪧 Create banner file if missing (CIS 5.2.7)
+[ -f "$BANNER_FILE" ] || echo "Authorized access only. Unauthorized use is prohibited." > "$BANNER_FILE"
+chown root:root "$BANNER_FILE"
+chmod 644 "$BANNER_FILE"
+echo "🪧 Banner file configured at $BANNER_FILE"
+
+# ⚙️ Overwrite sshd_config with CIS-compliant configuration
+cat <<EOF > "$SSH_CONFIG"
+# CIS Benchmark SSH Configuration
+Port $SSH_PORT
+Protocol 2
+LogLevel INFO
+X11Forwarding no
+MaxAuthTries 4
+IgnoreRhosts yes
+HostbasedAuthentication no
+PermitRootLogin no
+PermitEmptyPasswords no
+PermitUserEnvironment no
+Ciphers aes256-ctr,aes192-ctr,aes128-ctr
+MACs hmac-sha2-512,hmac-sha2-256
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512
+ClientAliveInterval 300
+ClientAliveCountMax 0
+LoginGraceTime 60
+Banner $BANNER_FILE
+AllowUsers $ALLOW_USERS
+EOF
+
+# 🔐 Set secure permissions (CIS 5.2.1)
+chown root:root "$SSH_CONFIG"
+chmod 600 "$SSH_CONFIG"
+echo "🔐 Permissions set to root:root 600 on $SSH_CONFIG"
+
+# 🔁 Restart SSH service
+if systemctl restart sshd; then
+    echo "✅ SSH service restarted successfully on port $SSH_PORT."
+else
+    echo "Error: Failed to restart SSH service. Reverting to backup..."
+    cp "$BACKUP" "$SSH_CONFIG"
+    systemctl restart sshd
+    echo "🔄 Restored $SSH_CONFIG from backup and restarted SSH service."
+    exit 1
+fi
+
+# ✅ Final check
+echo -e "\n🔍 Final sshd_config preview:"
+grep -E '^(Port|Protocol|LogLevel|X11Forwarding|MaxAuthTries|IgnoreRhosts|HostbasedAuthentication|PermitRootLogin|PermitEmptyPasswords|PermitUserEnvironment|Ciphers|MACs|KexAlgorithms|ClientAliveInterval|ClientAliveCountMax|LoginGraceTime|Banner|AllowUsers)' "$SSH_CONFIG"
+
+echo -e "\n⚠️ IMPORTANT: SSH is now running on port $SSH_PORT."
+echo "Update your SSH client configuration (e.g., ssh -p $SSH_PORT $USER@$HOST)."
+echo "Test connectivity before closing this session to avoid lockout."
