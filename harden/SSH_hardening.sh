@@ -1,5 +1,3 @@
-mkdir -p harden
-cat > harden/SSH_hardening.sh << 'EOF'
 #!/bin/bash
 # CIS Debian/Ubuntu SSH Hardening Script
 # Applies CIS Benchmark recommendations for SSH configuration with user-specified username and port
