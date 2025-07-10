@@ -125,7 +125,7 @@ chmod 600 "$SSH_CONFIG"
 echo "🔐 Permissions set to root:root 600 on $SSH_CONFIG"
 
 # 🔁 Restart SSH service
-if systemctl restart sshd 2>/dev/null; then
+if sudo systemctl restart ssh 2>/dev/null; then
     echo "✅ SSH service restarted successfully on port $SSH_PORT."
 else
     echo "Error: Failed to restart SSH service. Reverting to backup..."
