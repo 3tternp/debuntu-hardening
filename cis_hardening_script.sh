@@ -1,9 +1,21 @@
 #!/bin/bash
 # Enhanced Debian/Ubuntu Hardening Script with Consent and Menu
 # Applies selected scripts from 'harden' folder
+# Version: 1.0.0
 
 set -euo pipefail
 IFS=$'\n\t'
+
+# Display script banner
+cat << 'EOF'
+
+========================================
+   CIS Debian/Ubuntu Hardening Script
+========================================
+Version: 1.0.0          Developer: Astra
+========================================
+
+EOF
 
 # Warning and Consent
 echo "WARNING: This script applies system-level hardening based on the CIS Benchmark."
