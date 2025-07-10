@@ -149,4 +149,3 @@ grep -E '^(Port|Protocol|LogLevel|X11Forwarding|MaxAuthTries|IgnoreRHosts|Hostba
 echo -e "\n⚠️ IMPORTANT: SSH is now running on port $SSH_PORT."
 echo "Update your SSH client configuration (e.g., ssh -p $SSH_PORT $USER@$HOST)."
 echo "Test connectivity before closing this session to avoid lockout."
-EOF
